@@ -1,0 +1,5 @@
+{
+  "name": "Transcriber",
+  "description": "A powerful web application to transcribe audio and video files using Google Gemini 1.5 Flash. Upload your media and get instant, high-quality transcriptions.",
+  "requestFramePermissions": []
+}
