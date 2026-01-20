@@ -1,45 +1,68 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { AnalysisResult } from "../types";
 
-// Vite ke liye key yahan se aayegi
-const API_KEY = import.meta.env.VITE_API_KEY || "YOUR_KEY_HERE"; 
-const genAI = new GoogleGenerativeAI(API_KEY);
+const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || "");
 
-export const analyzeMedia = async (
-  base64Data: string,
-  mimeType: string,
-  language: string = "English"
-): Promise<AnalysisResult> => {
+export const analyzeMedia = async (fileUrl: string, mimeType: string, language: string) => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Agar 1.5-flash-latest kaam na kare, to sirf gemini-1.5-flash use karein
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
-    const prompt = `Analyze the audio/video content. Return results in JSON format with fields: transcription, summary, keyPoints (array), and segments (array). Output language: ${language}`;
+    const response = await fetch(fileUrl);
+    if (!response.ok) throw new Error("Supabase se file nahi mil saki.");
+    const blob = await response.blob();
+
+    const base64Data = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+      reader.readAsDataURL(blob);
+    });
+
+    const prompt = `Analyze this media in ${language}. 
+    Return a strictly valid JSON object (no markdown formatting, no backticks) with the following structure:
+    {
+      "transcription": "Full transcription of the audio/video",
+      "summary": "A concise summary of the content",
+      "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
+      "segments": [
+        {"startTime": "00:00", "endTime": "00:10", "speaker": "Speaker 1", "text": "Segment text"}
+      ]
+    }`;
 
     const result = await model.generateContent([
-      { inlineData: { mimeType, data: base64Data } },
-      { text: prompt },
+      {
+        inlineData: {
+          data: base64Data,
+          mimeType: mimeType
+        }
+      },
+      { text: prompt }
     ]);
 
-    const response = await result.response;
-    const text = response.text();
-    const cleanJson = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(cleanJson);
-  } catch (error) {
-    console.error("Analysis error:", error);
-    throw error;
-  }
-};
+    const aiResponse = await result.response;
+    const text = aiResponse.text();
 
-// --- YE FUNCTION ZAROORI HAI (Iska error aa raha tha) ---
-export const fileToBase64 = (file: File | Blob): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = (error) => reject(error);
-  });
+    // Clean code blocks if present (e.g. ```json ... ```)
+    const cleanerText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    try {
+      const parsed = JSON.parse(cleanerText);
+      return {
+        transcription: parsed.transcription || "No transcription available",
+        summary: parsed.summary || "No summary available",
+        keyPoints: parsed.keyPoints || [],
+        segments: parsed.segments || []
+      };
+    } catch (e) {
+      console.error("JSON Parse Error:", e, "Raw Text:", text);
+      return {
+        transcription: text,
+        summary: "Failed to parse analysis results.",
+        keyPoints: ["Raw output returned"],
+        segments: []
+      };
+    }
+  } catch (error: any) {
+    console.error("Detailed Error:", error);
+    throw new Error("AI Analysis fail: " + error.message);
+  }
 };

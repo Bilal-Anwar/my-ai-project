@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from './firebase';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import type { User } from 'firebase/auth';
+import { supabase } from './supabaseClient'; // Supabase client import kiya
+
 import Header from './components/Header';
 import FileUploader from './components/FileUploader';
 import TranscriptionView from './components/TranscriptionView';
 import ArchiveView from './components/ArchiveView';
-import { Auth } from './components/Auth'; // Make sure this path is correct
-import { SpinnerIcon, FileIcon, ArchiveIcon, UploadIcon, AlertIcon } from './components/Icons';
-import { analyzeMedia, fileToBase64 } from './services/geminiService';
+import { Auth } from './components/Auth';
+import { SpinnerIcon, FileIcon, ArchiveIcon } from './components/Icons';
+import { analyzeMedia } from './services/geminiService'; // fileToBase64 hata diya
 import { saveRecord } from './services/archiveService';
 import { TranscriptionStatus, FileData, AnalysisResult } from './types';
 
@@ -22,7 +25,25 @@ const App: React.FC = () => {
   const [fileData, setFileData] = useState<FileData | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState('English');
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (darkMode) {
+      root.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [darkMode]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -34,23 +55,43 @@ const App: React.FC = () => {
 
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
-    document.documentElement.classList.toggle('dark');
   };
 
+  // --- YEAH FUNCTION UPDATE KIYA HAI ---
   const handleAnalyze = async () => {
     if (!fileData) return;
     setStatus(TranscriptionStatus.PROCESSING);
     setProgress(10);
+
     try {
-      const base64 = await fileToBase64(fileData.file);
-      setProgress(40);
-      const result = await analyzeMedia(base64, fileData.mimeType, selectedLanguage);
+      // 1. Supabase Storage mein upload karein
+      const fileExt = fileData.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+      setProgress(20);
+      const { data, error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(fileName, fileData.file);
+
+      if (uploadError) throw uploadError;
+      setProgress(60);
+
+      // 2. Public URL hasil karein
+      const { data: { publicUrl } } = supabase.storage
+        .from('videos')
+        .getPublicUrl(fileName);
+
+      // 3. Gemini ko URL bheinjein (Base64 nahi)
+      const result = await analyzeMedia(publicUrl, fileData.mimeType, selectedLanguage);
+
       setProgress(90);
       saveRecord(fileData.name, result, fileData.mimeType);
       setAnalysisResult(result);
       setStatus(TranscriptionStatus.COMPLETED);
       setProgress(100);
-    } catch (error) {
+    } catch (error: any) {
+      console.error("Error:", error);
+      alert("Analysis Failed: " + error.message);
       setStatus(TranscriptionStatus.ERROR);
     }
   };
