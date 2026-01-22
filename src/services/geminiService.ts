@@ -1,8 +1,18 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || "");
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+
+if (!apiKey) {
+  console.error("VITE_GEMINI_API_KEY is missing! Please set it in your environment variables.");
+}
+
+const genAI = new GoogleGenerativeAI(apiKey);
 
 export const analyzeMedia = async (fileUrl: string, mimeType: string, language: string) => {
+  if (!apiKey) {
+    throw new Error("Gemini API key is not configured. Please set VITE_GEMINI_API_KEY in your environment variables.");
+  }
+
   try {
     // Agar 1.5-flash-latest kaam na kare, to sirf gemini-1.5-flash use karein
     const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });

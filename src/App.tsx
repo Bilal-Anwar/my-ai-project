@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { auth } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import type { User } from 'firebase/auth';
-import { supabase } from './supabaseClient'; // Supabase client import kiya
+import { supabase, isSupabaseConfigured } from './supabaseClient'; // Supabase client import kiya
 
 import Header from './components/Header';
 import FileUploader from './components/FileUploader';
@@ -60,6 +60,14 @@ const App: React.FC = () => {
   // --- YEAH FUNCTION UPDATE KIYA HAI ---
   const handleAnalyze = async () => {
     if (!fileData) return;
+    
+    // Check if Supabase is configured
+    if (!isSupabaseConfigured()) {
+      alert("Supabase is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment variables.");
+      setStatus(TranscriptionStatus.ERROR);
+      return;
+    }
+
     setStatus(TranscriptionStatus.PROCESSING);
     setProgress(10);
 
@@ -91,8 +99,9 @@ const App: React.FC = () => {
       setProgress(100);
     } catch (error: any) {
       console.error("Error:", error);
-      alert("Analysis Failed: " + error.message);
+      alert("Analysis Failed: " + (error.message || "Unknown error occurred"));
       setStatus(TranscriptionStatus.ERROR);
+      setProgress(0);
     }
   };
 
